@@ -389,7 +389,7 @@ Obj* AllocateObject(Obj* baseClass) {
 		else if (type == CallTableArray || type == CallTableDouble ) {
 			size += sizeof(int) * 2;
 		}
-		else if (type = CallTableString) {
+		else if (type == CallTableString) {
 			Error("string unfinised");
 			return NULL;
 		}
@@ -423,7 +423,7 @@ Obj* AllocateObject(Obj* baseClass) {
 		else if (type == CallTableArray || type == CallTableDouble) {
 			ofset += sizeof(int) * 2;
 		}
-		else if (type = CallTableString) {
+		else if (type == CallTableString) {
 			Error("string unfinised");
 			return NULL;	
 		}
@@ -435,6 +435,25 @@ Obj* AllocateObject(Obj* baseClass) {
 		}
 	}
 	return result;
+}
+
+
+Obj* AllocatePointerObject(size_t count) {
+	int sise = sizeof(Obj) + (sizeof(CallTableElement) + sizeof(void*)) * count;
+	Obj* ptr = (Obj*)Allocate(sise)  ;
+	if (ptr == NULL) return NULL;
+	ptr->length = sise;
+	ptr->Baseclass = 0;
+	ptr->Referances = 0;
+	ptr->CallMax = count;
+	ptr->CallMin = 0;
+	for (size_t i = 0; i < count; i++)
+	{
+		CallTableElement* element = GetCallElementPtr(ptr, i);
+		element->type = CallTableProgram;
+		element->ofset = i * sizeof(void*);
+	}
+	return ptr;
 }
 
 Obj* AllocateObject(size_t sise) {

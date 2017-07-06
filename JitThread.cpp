@@ -6,6 +6,7 @@
 
 Queue* Toload;
 Mutex QueueMutex;
+Mutex CompileMutex;
 ThreadEvent resetEvent = 0;
 volatile bool running = false;
 volatile bool Tasks = false;
@@ -18,7 +19,7 @@ struct CompileItem {
 };
 
 
-void StopLoaderThread() {
+void StopCompilerThread() {
 	if (running) {
 		running = false;
 		SetThreadEvent(resetEvent);
@@ -31,7 +32,10 @@ static int GetID() {
 
 static void BlockUntilDone(CompileItem Toadd) {
 #ifdef _KERNAL	
-	//todo this
+	Note("blocking");
+	WaitThreadEvent((ThreadEvent)Toadd.ThreadId);
+	DestroyThreadEvent((ThreadEvent)Toadd.ThreadId);
+	Note("Done blocking");
 #else
 	Note("blocking");
 	WaitThreadEvent((ThreadEvent)Toadd.ThreadId);
@@ -41,6 +45,7 @@ static void BlockUntilDone(CompileItem Toadd) {
 
 }
 bool InitJitD() {
+	if (running) return false;
 	size_t sise = QueueGetsise(sizeof(CompileItem), 255);
 	queuememory = Allocate(sise);
 	if (queuememory == NULL) {
@@ -52,15 +57,70 @@ bool InitJitD() {
 		Error("unable to create queue");
 		return false;
 	}
+
+	if (resetEvent != NULL) {
+		DestroyThreadEvent(resetEvent);
+	}
+	resetEvent = CreateThreadEvent();
+
+	if (resetEvent == NULL) {
+		Error("Error Reset Event.\n");
+		return false;
+	}
+
+	if (QueueMutex != NULL) {
+		DestroyMutex(QueueMutex);
+	}
+	QueueMutex = MakeMutex();
+
+	if (QueueMutex == NULL) {
+		Error("Error creating mutex.\n");
+		return false;
+	}
+
+	if (CompileMutex != NULL) {
+		DestroyMutex(QueueMutex);
+	}
+	CompileMutex = MakeMutex();
+
+	if (CompileMutex == NULL) {
+		Error("Error creating mutex.\n");
+		return false;
+	}
+
+
 	return true;
+
+
+
+
 }
 
 void CloseJitD() {
-	StopLoaderThread();
+	StopCompilerThread();
 	Free(queuememory);
 }
 
+void SignalError(int ThreadId) {
+	Error("Failed to Compile Function");
+}
+
+static inline void CompileNow(CompileItem WorkItem) {
+	if (!CompileProgramIndex(WorkItem.item, WorkItem.index)) {
+		SignalError(WorkItem.ThreadId);
+	}
+}
+
+static void DoCompilework(CompileItem WorkItem) {
+	LockMutex(CompileMutex);
+	CompileNow(WorkItem);
+	FreeMutex(CompileMutex);
+}
+
+
+
 void EnqueueFunction(Obj* item,int index,bool Blocking) {
+	Note("Enququeing function");
 	CompileItem Toadd;
 #ifdef _KERNAL	
 	//todo this
@@ -75,6 +135,13 @@ void EnqueueFunction(Obj* item,int index,bool Blocking) {
 	
 	Toadd.item = item;
 	Toadd.index = index;
+
+	if (!running) {
+		if (!Blocking) return;
+		CompileNow(Toadd);
+		return;
+	}
+
 	if (LockMutex(QueueMutex)) {
 		QueuePush(Toload, &Toadd);
 		Tasks = true;
@@ -90,35 +157,11 @@ void EnqueueFunction(Obj* item,int index,bool Blocking) {
 
 
 
-void SignalError(int ThreadId) {
-	Error("Failed to Compile Function");
-}
 
-void LoaderThreadRun() {
+void CompilerThreadRun() {
 	if (running) return;
 	running = true;
 	Note("init Thread");
-
-	if (resetEvent != NULL) {
-		DestroyThreadEvent(resetEvent);
-	}
-	resetEvent = CreateThreadEvent();
-	
-	if (resetEvent == NULL) {
-		Error("Error Reset Event.\n");
-		return;
-	}
-	if (!running) return;
-
-	if (QueueMutex != NULL) {
-		DestroyMutex(QueueMutex);
-	}
-	QueueMutex = MakeMutex();
-
-	if (QueueMutex == NULL) {
-		Error("Error creating mutex.\n");
-		return;
-	}
 	if (!running) return;
 	CompileItem WorkItem;
 	Note("Starting main loop");
@@ -144,9 +187,7 @@ void LoaderThreadRun() {
 			FreeMutex(QueueMutex);
 			if (ptr != NULL) {
 				Note("work to do");
-				if (!CompileIndex(WorkItem.item, WorkItem.index)) {
-					SignalError(WorkItem.ThreadId);
-				}
+				DoCompilework(WorkItem);
 		#ifdef _KERNAL
 
 				//todo this
@@ -159,7 +200,6 @@ void LoaderThreadRun() {
 		if (!running) break;
 		if (!Tasks) {
 			WaitThreadEvent(resetEvent); //todo check if it acually waits
-			
 		}
 	}
 	DestroyMutex(QueueMutex);

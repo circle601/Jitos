@@ -1,33 +1,90 @@
-#include "Loader.h"
-#include "ByteCode.h"
 #include "stdafx.h"
+#include "ByteCode.h"
+#include "Loader.h"
 #include "Memory.h"
 #include "Debug.h"
+#include "ClassFinder.h"
+static char Stringbuffer[256];
+static char* buffer;
+static int length;
+static int iP;
+Byte Compressionmode;
+static const unsigned int magicNumber = 0x1EAB11CA;
+
+static Byte inline ReadByte() {
+	if (iP < length) {
+		return (Byte)buffer[iP++];
+	}
+	return 0;
+
+}
+
+static unsigned int ReadUInt()
+{
+	 unsigned int result = 0;
+	if (iP + 3 > length) {
+		return false;
+	}
+
+	result |= (unsigned int)((unsigned char)ReadByte() & 0xFF);
+	result |= (unsigned int)(((unsigned char)ReadByte() & 0xFF) << 8);
+	result |= (unsigned int)(((unsigned char)ReadByte() & 0xFF) << 16);
+	result |= (unsigned int)(((unsigned char)ReadByte() & 0xFF) << 24);
+	return result;
+}
+
+static bool CheckSection(const char* section) {
+	if (Compressionmode == 0) {
+		if (iP + 3 > length) {
+			return false;
+		}
+		return section[0] == buffer[iP++] && section[1] == buffer[iP++] && section[2] == buffer[iP++] && section[3] == buffer[iP++];
+	}
+	else {
+		return section[0] == ReadByte();
+	}
+}
+
+
+static char* ReadString()
+{
+	char* result;
+	Byte length = ReadByte() + 1;
+	result = (char*)(iP + (int)buffer);
+	iP += length;
+	return result;
+}
 
 
 void FreeProgram(PackageProgram* program)
 {
-
-
+	Note("freeing program");
+	if (program->classes != NULL) {
+		for (size_t i = 0; i < program->classesCount; i++)
+		{
+			FreeObject(program->classes[i]);
+		}
+	}
 	if (program->redirectionTable != NULL) {
 		for (size_t i = 0; i < program->redirectionTableCount; i++)
 		{
-			Free(program->redirectionTable->name);
+			Free(program->redirectionTable[i].name);
 		}
 	}
+	Free(program->startpoint);
 	Free(program->redirectionTable);
-
+	Free(program->classes);
+	Free(program->name);
 }
 
- void Clearup(PackageProgram* program)
+static void ClearupProgramLoader(PackageProgram* program)
  {
-	 Free(buffer);
 	 FreeProgram(program);
  }
 
 
 static Obj* LoadProgramObject(int length) {
-	
+	Note("Loading object");
 	int i = 0;
 
 	const int baselength = (sizeof(int) * 3 + sizeof(Byte) * 4);
@@ -39,11 +96,14 @@ static Obj* LoadProgramObject(int length) {
 
 	int Objlength = ReadUInt(); //todo GEt accuarate length
 	Obj* result = (Obj*)Allocate(Objlength);
+
 	if (result == NULL) {
 		Error("failed to allocate memory for class");
 		return NULL;
 	}
+	ReadUInt(); // space for program referance
 	result->length = Objlength;
+
 	result->Referances = 0; ReadByte();
 	result->Baseclass = 0; ReadUInt();
 	result->Flags = ReadByte();
@@ -67,10 +127,6 @@ static Obj* LoadProgramObject(int length) {
 		calltable[i].ofset= location;
 		calltable[i].type = itemtype;
 	}
-
-
-
-
 
 	char* data = (char*)&(result->data) + sizeof(CallTableElement) * numItems;
 	
@@ -125,6 +181,7 @@ static Obj* LoadProgramObject(int length) {
 
 static PackageProgram* LoadProgramFileInternal() {
 	
+	   Note("Loading program file");
 		PackageProgram* ouput = (PackageProgram*)Allocate(sizeof(PackageProgram));
 		ouput->name = NULL;
 		ouput->redirectionTable = NULL;
@@ -136,23 +193,27 @@ static PackageProgram* LoadProgramFileInternal() {
 		int magic = ReadUInt();
 		if (magic != magicNumber) {
 			Error("invalid magic number");
-			Clearup(ouput);
+			ClearupProgramLoader(ouput);
 			return NULL;
 		}
 
 		Byte filevertion = ReadUInt(); // file vertion
-		Byte Compressionmode = ReadUInt(); //0 means uncompressed
+		 Compressionmode = ReadByte(); //0 means uncompressed
+	
+		 Note("reading header");
+
+
 		ReadUInt(); // reserved
 		if (!CheckSection("HEDR")) {
 			Error("header expected");
-			Clearup(ouput);
+			ClearupProgramLoader(ouput);
 			return NULL;
 		}
 		char* name = ReadString();
 		ouput->name = (char*)Allocate(strlen(name));
 		if (ouput->name == NULL) {
 			Error("unable to allocate space for name");
-			Clearup(ouput);
+			ClearupProgramLoader(ouput);
 			return NULL;
 		}
 #ifdef _MSC_VER
@@ -166,10 +227,6 @@ static PackageProgram* LoadProgramFileInternal() {
 #pragma warning(pop)
 #endif
 	
-#ifdef NOTKERNAL
-		std::cout << "Loading Program " << name << "... \n";
-#endif
-
 		int redirectTable = ReadUInt();
 		unsigned int classcount = ReadUInt();
 		unsigned int totalclasslength = ReadUInt();
@@ -178,7 +235,7 @@ static PackageProgram* LoadProgramFileInternal() {
 		ouput->classes = (Obj**)Allocate(sizeof(Obj*) * classcount);
 		if (ouput->classes == NULL) {
 			Error("unable to allocate space for classes");
-			Clearup(ouput);
+			ClearupProgramLoader(ouput);
 			return NULL;
 		}
 		for (size_t i = 0; i < classcount; i++)
@@ -190,7 +247,7 @@ static PackageProgram* LoadProgramFileInternal() {
 		ouput->startpoint = (char*)Allocate(strlen(name));
 		if (ouput->name == NULL) {
 			Error("unable to allocate space for startpoint");
-			Clearup(ouput);
+			ClearupProgramLoader(ouput);
 			return NULL;
 		}
 #ifdef _MSC_VER
@@ -210,24 +267,24 @@ static PackageProgram* LoadProgramFileInternal() {
 		int usedLenght = 0;
 		if (!CheckSection("PROG")) {
 			Error("PROG expected");
-			Clearup(ouput);
+			ClearupProgramLoader(ouput);
 			return NULL;
 		}
 		for (size_t i = 0; i < classcount; i++)
 		{
 			if (iP > length) {
 				Error("out of space");
-				Clearup(ouput);
+				ClearupProgramLoader(ouput);
 				return NULL;
 			}
 			char* ClassName = ReadString();
-#ifdef NOTKERNAL
+#ifndef _KERNAL
 			std::cout << "------Loading Class "  << ouput->name << ClassName << " ... \n";
 #endif
 			Obj* objclass = LoadProgramObject(totalclasslength - usedLenght);
 			if (objclass == NULL) {
 				Error("failed to load class");
-				Clearup(ouput);
+				ClearupProgramLoader(ouput);
 				return NULL;
 			}
 			ouput->classes[i] = objclass;
@@ -235,21 +292,25 @@ static PackageProgram* LoadProgramFileInternal() {
 		
 		if (!CheckSection("DATA")) {
 			Error("DATA expected");
-			Clearup(ouput);
+			ClearupProgramLoader(ouput);
 			return NULL;
 		}
+
 		unsigned int datacount = ReadUInt();
 		for (size_t i = 0; i < datacount; i++)
 		{
 			if (iP > length) {
 				Error("out of space");
-				Clearup(ouput);
+				ClearupProgramLoader(ouput);
 				return NULL;
 			}
 		}
+
+		Note("reading Redirection");
+
 		if (!CheckSection("REDI")) {
-			Error("PROG expected");
-			Clearup(ouput);
+			Error("REDI expected");
+			ClearupProgramLoader(ouput);
 			return NULL;
 		}
 		unsigned int redirectcount = ReadUInt();
@@ -257,8 +318,8 @@ static PackageProgram* LoadProgramFileInternal() {
 		ouput->redirectionTableCount = redirectcount;
 		ouput->redirectionTable = (RedirectionTableItem*)Allocate(sizeof(RedirectionTableItem) *redirectcount);
 		if (ouput->redirectionTable == NULL) {
-			Error("unable to allocate space for redirection");
-			Clearup(ouput);
+			Error("unable to allocate redirection");
+			ClearupProgramLoader(ouput);
 			return NULL;
 		}
 		for (size_t i = 0; i < classcount; i++)
@@ -272,7 +333,7 @@ static PackageProgram* LoadProgramFileInternal() {
 		{
 			if (iP > length) {
 				Error("out of space");
-				Clearup(ouput);
+				ClearupProgramLoader(ouput);
 				return NULL;
 			}
 
@@ -281,8 +342,8 @@ static PackageProgram* LoadProgramFileInternal() {
 			Item->name = (char*)Allocate(strlen(redname));
 			Item->ptr = NULL;
 			if (Item->name == NULL) {
-				Error("unable to allocate space for name");
-				Clearup(ouput);
+				Error("unable to allocate name");
+				ClearupProgramLoader(ouput);
 				return NULL;
 			}
 
@@ -291,7 +352,7 @@ static PackageProgram* LoadProgramFileInternal() {
 #pragma warning(disable : 4996)
 #endif
 
-			strcpy(Item->name, name);
+			strcpy(Item->name, redname);
 
 #ifdef _MSC_VER
 #pragma warning(pop)
@@ -302,18 +363,30 @@ static PackageProgram* LoadProgramFileInternal() {
 			Item->id = ReadUInt();
 
 			char charnum = ReadByte();
-				if (charnum != -1 && charnum <  ouput->classesCount) {
+			if (charnum == -1) {
+				Item->ptr = ResolveClass(Item->name);
+			}else if ( charnum <  ouput->classesCount) {
 					Item->ptr = ouput->classes[charnum];
 				}
 		}
 
-		magic = ReadUInt();
-		if (magic != magicNumber) {
-			Error("invalid magic number");
-			Clearup(ouput);
-			return NULL;
-		}
+		if (filevertion > 2) {
+			if (!CheckSection("ENDP")) {
+				Error("ENDP expected");
+				ClearupProgramLoader(ouput);
+				return NULL;
+			}
 
+		}
+		else {
+
+			magic = ReadUInt();
+			if (magic != magicNumber) {
+				Error("invalid magic number");
+				ClearupProgramLoader(ouput);
+				return NULL;
+			}
+		}
 		
 		
 		return ouput;

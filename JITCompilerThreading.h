@@ -1,13 +1,21 @@
 #pragma once
 
-
+#include "stdafx.h"
 
 #ifdef _KERNAL
-typedef void* Mutex;
+
+struct MutexInternal
+{
+	volatile int Locked;
+};
+
+typedef MutexInternal* Mutex;
 typedef void* Thread;
 typedef void* ThreadEvent;
-#define NULL 0
+
 #else
+
+
 #include <thread>        
 #include <mutex>
 #include <windows.h>

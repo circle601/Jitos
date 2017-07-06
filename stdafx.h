@@ -5,11 +5,14 @@
 
 #pragma once
 
-void PrintError(const char* errorcode);
+
+#define NULL 0
 
 #ifdef _KERNAL
 
-#define NULL 0
+
+#include "tdefs.h";
+#include "size_t.h";
 extern void* memcpy(void* destination, const void* source, size_t num);
 extern size_t strlen(const char* str);
 extern char* strcpy(char* destination, const char* source);

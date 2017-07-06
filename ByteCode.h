@@ -2,11 +2,6 @@
 #pragma once
 
 
-
-
-
-
-
 #include "tdefs.h"
 
 
@@ -92,11 +87,11 @@ void* GetDataPointer(Obj* object);
 
 CallTableElement* GetCallElementPtr(Obj* object, char index);
 void* GetItemPtr(Obj* object,CallTableElement* element);
+void* GetItem(Obj* object, char index);
 
 
 
-
-bool CompileIndex(Obj* object, char index);
+bool CompileProgramIndex(Obj* object, char index);
 void* GetExecuteAddr(Obj* object, char index);
 
 
@@ -118,3 +113,7 @@ inline bool isFloat(int type) {
 	return (type == CallTableFloat || type == CallTableDouble);
 }
 
+
+inline bool isString(int type) {
+	return (type == CallTableString || type == CallTableDouble);
+}

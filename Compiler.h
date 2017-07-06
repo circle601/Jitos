@@ -2,11 +2,6 @@
 #include "ByteCode.h"
 #include "tdefs.h"
 
-#ifndef _KERNAL
-#define assert(x)
-#else
-#define assert(x)
-#endif // DEBUG
 
 
 
@@ -61,19 +56,7 @@ struct Varable
 };
 
 
-static unsigned char PeakByte();
-static unsigned char ReadByte();
-static short ReadShort();
-static unsigned short ReadUShort();
-static int ReadInt();
-static unsigned int ReadUInt();
-static void Move(Varable* source, Varable* Dest);
-static void Move(Varable* source, int Dest);
-static bool MoveREG(Varable* source, Register Dest);
-static bool ForceREG(Varable* source, Register Dest);
-static void Cast();
-static void SendHome(Register Dest);
-//Interface
+
 
 
 void SetPackage(PackageProgram* package);

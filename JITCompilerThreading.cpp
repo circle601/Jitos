@@ -2,46 +2,82 @@
 
 
 
-
 #ifdef _KERNAL
+
+
+
+
+#include "Memory.h"
 //todo all this
 Mutex MakeMutex() {
+	return (Mutex)Allocate(sizeof(MutexInternal));
 	return NULL; //TODO THIS
 }
 
+
+void ThreadAwaitPointer(bool* locker) {
+
+}
+
 bool LockMutex(Mutex mutex) {
-	return false;
+	Mutex address = mutex;
+	bool Locked = false;
+	while (!Locked) {
+		__asm {
+			mov eax, 0;
+			mov ebx, 1;
+			lock CMPXCHG[address], ebx;
+			SETZ Locked;
+		};
+		if (!Locked) {
+			ThreadAwaitPointer((bool*)mutex);
+		}
+	}
+	return Locked;
 }
 
 bool FreeMutex(Mutex mutex) {
-	return false;
+	Mutex address = mutex;
+	__asm{
+	lock mov [address], 0
+	};
 }
 
 void DestroyMutex(Mutex mutex)
 {
-	
+	Free(mutex);
 }
 
 ThreadEvent CreateThreadEvent() {
-	return NULL; //TODO THIS
+	ThreadEvent eve = (ThreadEvent)Allocate(sizeof(MutexInternal));
+	(*(int*)eve) = 1;
+	return eve;
 }
 
 void SetThreadEvent(ThreadEvent thread) {
-
+	(*(int*)thread) = 0;
 }
 
 void WaitThreadEvent(ThreadEvent thread) {
-
+	ThreadEvent address = thread;
+	bool Locked = false;
+	while (!Locked) {
+		__asm {
+			mov eax, 0;
+			mov ebx, 1;
+			lock CMPXCHG[address], ebx;
+			SETZ Locked;
+		};
+		if (!Locked) {
+			ThreadAwaitPointer((bool*)address);
+		}
+	}
+	return;
 }
 
 void DestroyThreadEvent(ThreadEvent thread) {
-	
+	Free(thread);
 }
-
-void SetThreadEvent(ThreadEvent resetEvent)
-{
-}
-
 
 
 #else

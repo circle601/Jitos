@@ -17,17 +17,18 @@ void* GetItemPtr(Obj* object, CallTableElement* element) {
 	if (object == NULL) return  NULL;
 
 	unsigned char langth = object->CallMax - object->CallMin;
-	return (void*)((char*)(&object->data) + (langth * sizeof(CallTableElement) + element->ofset));
+	return (void*)((int)(&object->data) + (langth * sizeof(CallTableElement) + element->ofset));
 }
 
-void* GetItemPtr(Obj* object, char index) {
+void* GetItem(Obj* object, char index) {
 	CallTableElement* item = GetCallElementPtr(object, index);
 	unsigned char langth = object->CallMax - object->CallMin;
-	return object + langth * sizeof(CallTableElement) + item->ofset;
+	return (void*)((int)(&object->data) + (langth * sizeof(CallTableElement) + item->ofset));
 }
 
 
 CallTableElement* GetCallElementPtr(Obj* object, char index) {
+	if (object == NULL) return  NULL;
 	unsigned char min = object->CallMin;
 	unsigned char max = object->CallMax;
 	if (index >= min && index < max) {
@@ -43,7 +44,7 @@ void RunAddress(void* address) {
 	int result = ((MyFunc)address)();
 }
 
-bool CompileIndex(Obj* object, char index) {
+bool CompileProgramIndex(Obj* object, char index) {
 	CallTableElement* item = GetCallElementPtr(object, index);
 	if (item == NULL) {
 		return false;
@@ -84,6 +85,7 @@ bool CompileIndex(Obj* object, char index) {
 }
 
 void* GetExecuteAddr(Obj* object, char index) {
+	if (object == NULL) return NULL;
 	CallTableElement* item = GetCallElementPtr(object, index);
 	if (item == NULL) {
 		if (object->Baseclass != NULL) {
@@ -117,7 +119,7 @@ void* GetExecuteAddr(Obj* object, char index) {
 		if (ptr == 0) {
 			return NULL;
 		}
-		return ptr;
+		return *(void**)ptr;
 	}
 	else 
 	{

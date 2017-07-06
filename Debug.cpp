@@ -1,6 +1,8 @@
 #include "Debug.h"
 #include "stdafx.h"
 
+#define Naked   __declspec( naked )  
+
 Naked void PrintStack(void) { //todo finish this
 	__asm {
 
@@ -22,14 +24,17 @@ Naked void PrintStack(void) { //todo finish this
 
 #ifdef _KERNAL
 
-
+#ifndef NewError
 void Error(const char* errorcode) {
 	PrintError(errorcode);
 }
+#endif
+void Note(const char* errorcode) {
+	PrintError(errorcode);
+}
 
-static inline void Note(const char* errorcode) {}
-static inline void Ping() {}
-static inline void Warn(const char* errorcode) {}
+void Ping() {}
+void Warn(const char* errorcode) {}
 
 #else
 using namespace std;
@@ -41,14 +46,16 @@ void PrintError(const char* errorcode) {
 void Note(const char* errorcode) {
 	cout << errorcode << "\n";
 }
-
+#ifndef NewError
 void Error(const char* errorcode) {
 	cout << "Error:" << errorcode << "\n";
 }
-
+#endif
 void Warn(const char* errorcode) {
 	cout << "warn:" << errorcode << "\n";
 }
+
+
 
 #endif
 

@@ -11,3 +11,7 @@ Obj* JitAllocateArray(Obj* baseclass) {
 void* JitGetCallPtr(Obj* object, int index) {
 	return GetExecuteAddr(object, index);
 }
+
+void* JitGetItem(Obj* object, int index) {
+	return GetItem(object, index);
+}

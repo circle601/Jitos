@@ -1,16 +1,20 @@
 #pragma once
 
-#define Naked   __declspec( naked )  
+
 
 
 void Note(const char* errorcode);
 void Error(const char* errorcode);
 void Warn(const char* errorcode);
+void Ping();
 
+#ifdef _KERNAL
 
-#ifndef _KERNAL
-
-#define Assert(x,y) if(x) { Error(y); };
-#else
+extern void PrintError(const char* errorcode);
 #define Assert(x,y) ;
+#define Assert(x) ;
+#else
+void PrintError(const char* errorcode);
+#define Assert(x,y) if(x) { Error(y); };
+#define Assert(x) if(!x){ Error("x"); };
 #endif // _DEBUG

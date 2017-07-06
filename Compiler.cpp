@@ -2,38 +2,46 @@
 #include "Compiler.h"
 #include "JitInterface.h"
 
+#define NewError
+
+#include "Debug.h"
+#undef NewError
+
+//todo need to make a multythreaded compiler
+
+
+static unsigned char PeakByte();
+static unsigned char ReadByte();
+static short ReadShort();
+static unsigned short ReadUShort();
+static int ReadInt();
+static unsigned int ReadUInt();
+static void Move(Varable* source, Varable* Dest);
+static void Move(Varable* source, int Dest);
+static bool MoveREG(Varable* source, Register Dest);
+static bool ForceREG(Varable* source, Register Dest);
+static void Cast();
+static void SendHome(Register Dest);
+static char* ReadString();
+
+
+
+
+
+
 bool ErrorCode = false;
 #ifndef _KERNAL
 
 using namespace std;
 
-static void _cdecl PrintNumDebug(int num) {
-	cout << "PrintNum:" << num << "\n";
-}
-static void _cdecl Ping() {
-	cout << "Ping\n";
-}
-static void Note(const char* errorcode) {
-	cout  << errorcode << "\n";
-}
+
 
 static void Error(const char* errorcode) {
 	cout << "Error:" << errorcode << "\n";
 	ErrorCode = true;
 }
 
-static void Warn(const char* errorcode) {
-	cout << "warn:" << errorcode << "\n";
-}
-
-static void NumNote(int num) {
-	printf("0x%08x \n", num);
-}
-
 #else
-
-static void Warn(const char* errorcode) {
-}
 
 static inline void Error(const char* errorcode) {
 	PrintError(errorcode);
@@ -64,19 +72,25 @@ void CC(First first) {
 
 
 
+
+
+
 #pragma region  varables
 
+#define SCOPES 16
+
+//also errvor varable uptop
 static PackageProgram* Package;
 static Obj* ParentClass;
 static int VariableTop = 0;
 static unsigned int ScopeTop = 0;
 static Byte* WorkPlace; // place to store program being created;
 static size_t MaxWorkPlaceSise;
-static ScopeLevel Scope[255];
-static Byte VariablesinScope[255];  //stack of varables in scope
-static Varable Variables[255];
-static int endJumps[255];
-static Byte parameters[255];
+static ScopeLevel Scope[SCOPES];
+static Byte VariablesinScope[SCOPES];  //stack of varables in scope
+static Varable Variables[SCOPES];
+static int endJumps[SCOPES];
+static Byte parameters[SCOPES];
 static int Registers[RegisterCount]; //abcdflags
 static Byte* program; // bytecode
 static int Codelength;
@@ -96,7 +110,7 @@ static bool clearFlags = true;
 
 
 static bool AddVar(Byte id, int Type) {
-	if (VarId == 255) {
+	if (VarId == SCOPES) {
 		return false;
 	}
 	Varable var;
@@ -141,7 +155,7 @@ static bool AddScope() {
 	level.varables = 0;
 	level.endjumps = 0;
 	Scope[ScopeTop]= level;
-	assert(ScopeTop > 0);
+	Assert(ScopeTop > 0);
 	return true;
 }
 
@@ -152,6 +166,7 @@ static void SetFlags(Varable* var,Byte Target) {
 }
 
 void SetFunction(BytecodeProgram* function, Obj* parentClass) {
+
 	ParentClass = parentClass;
 	program = (Byte*)&function->data;
 	Codelength = function->length;
@@ -166,7 +181,7 @@ void SetFunction(BytecodeProgram* function, Obj* parentClass) {
 	{
 		Registers[i] = 0;
 	}
-	for (size_t i = 0; i < 255; i++)
+	for (size_t i = 0; i < SCOPES; i++)
 	{
 		Variables[i].id = i;
 		Variables[i].Created = false;
@@ -184,7 +199,7 @@ void SetFunction(BytecodeProgram* function, Obj* parentClass) {
 			var->StackStorage = i - count;
 		}
 	}
-	assert(ScopeTop == 1);
+	Assert(ScopeTop == 1);
 }
 
 
@@ -348,6 +363,7 @@ static void Instruction(char code, Varable* A, Varable* B) {
 		CC(code);
 		if (Register) {
 			//todo fix it
+			Error("not done");
 		}else {
 			CC(ModRM((ofset > 127) ? 2 : 1, Reg1, regEsp));
 			CC(SIB(0, regEsp, regEsp));
@@ -374,7 +390,7 @@ static void InstructionSingle(char code, char Part2, Varable* A) {
 static  void BreakPoint() {
 	CC(0xCC);
 }
-static int ResolveIndex(int index) {
+static unsigned int ResolveIndex(int index) {
 	if (index < 256) {
 		return index;
 	}
@@ -391,6 +407,7 @@ static int ResolveIndex(int index) {
 	}
 	return 0;
 }
+
 static void NewStackFrame() {
 	CC(0x55, 0x89, 0xE5);
 	//push    ebp
@@ -436,21 +453,41 @@ static void BuiltinCall(void* address) {
 }
 
 
-static void InitVarable(Varable* var,int Value) {
-	if (var->init) return;
-	int type = var->type;
-	if (isNnumber(type)) {
-		PushConstant(0);
-	}
-	else if(isObject(type)){
-		PushConstant(0);
+static void SetVarable(Varable* var,int Value) {
+
+	if (var->init) {
+		int Register = var->RegisterStorage;
+		if (Register == 0) {//varable is in memory location
+			int ofset = memoryOfset(var->StackStorage);
+			if (ofset < 128) {
+				CC(0xC7, 0x44, 0x24, (char)ofset, Split4(Value));
+			}
+			else {
+				CC(0xC7, 0x84, 0x24, Split4(ofset), Split4(Value));
+			}
+		}
+		else if (Register == regEax) { //varable is in Register
+			CC(0xb8, Split4(Value)); // mov eax, 4
+		}
+		else {
+			SendHome(Register);
+			SetVarable(var, Value);
+		}
 	}
 	else {
-		Error("unfinised");
+		int type = var->type;
+		if (isNnumber(type)) {
+			PushConstant(Value);
+		}
+		else if (isObject(type)) {
+			PushConstant(Value);
+		}
+		else {
+			Error("unfinised");
+		}
+		var->init = true;
+		var->StackStorage = StackBias;
 	}
-
-	var->init = true;
-	var->StackStorage = ++StackBias;
 }
 
 void Stacktrace() {
@@ -461,9 +498,7 @@ void Stacktrace() {
 
 bool Compile() {
 
-	//BuiltinCall(PrintStack);
-
-	assert(ScopeTop == 1);
+	Assert(ScopeTop == 1);
 	while(iP < Codelength)
 	{
 		Byte Opcode = ReadByte();
@@ -555,7 +590,6 @@ bool Compile() {
 				ClearArgument();
 			}
 			if (returnvarable != 255) {
-			
 				ForceREG(Returnvarable, regEax);
 			}
 			break;
@@ -577,36 +611,20 @@ bool Compile() {
 						
 					if(isNnumber(Type))
 					{
-					unsigned	int number = ReadUInt();
-						int Register = Variables[varable].RegisterStorage;
-						if (!Variables[varable].init) { // nolocation for varable;
-							// push varable
-							if (number < 128) {
-								CC(0x6A, (char)number);
-							}else{
-								CC(0x68, Split4(number));
-							}
-							(&Variables[varable])->init = true;
-							(&Variables[varable])->StackStorage = ++StackBias;
-						}
-						else if (Register == 0) {//varable is in memory location
-							int ofset = memoryOfset(Variables[varable].StackStorage);
-							if (ofset < 128) {
-								CC(0xC7, 0x44, 0x24, (char)ofset, Split4(number));
-							}
-							else {
-								CC(0xC7, 0x84, 0x24, Split4(ofset), Split4(number));
-							}
-						}
-						else if(Register == regEax){ //varable is in Register
-								CC(0xb8, Split4(number)); // mov eax, 4
-						}else{
-							Error("invalid register");
-						}
-						break;
+					unsigned int Value = ReadUInt();
+					SetVarable(&Variables[varable], Value);
+
 					}
-					else if (isFloat) {
+					else if (isFloat(Type)) {
 						Error(" float not supported");
+					}
+					else if(CallTableString == Type){
+					//todo Need to have way of freeing string
+						char* stringdata = ReadString();
+						int length = strlen(stringdata) + 1;
+						char* stringmemory = (char*)Allocate(length);
+						memcpy(stringmemory, stringdata, length);
+						SetVarable(&Variables[varable], (int)stringmemory);
 					}
 					else {
 						Error("unsupported type");
@@ -617,9 +635,54 @@ bool Compile() {
 		case(0x25): //TODO ConstantPool
 			Error("notdone"); break;
 		case(0x26):// Call(dynamic) // length2: opcode, object,idvarable
-		case(0x27):// returnConstant // length3+: opcode,varable,Data todo
-		case(0x28):// Call(compiletime) // length 3: opcode, object, elementid  // calling a static method
+		{
 			Error("notdone"); break;
+		}
+		case(0x27):// returnConstant // length3+: opcode,varable,Data todo
+		{
+			Error("notdone"); break;
+		}
+		case(0x28):// Call(compiletime) // length 3: opcode, object,output elementid,params  // calling a static method
+		{
+			unsigned int object = ReadUInt();
+			Byte output = ReadByte();
+			Byte elementid = ReadByte();
+			Byte paramCount = ReadByte();
+
+			
+			
+			if (object < 255) Error("Static method on primative");
+			unsigned int Objectptr = ResolveIndex(object);
+			if (object < 255) Error("Static method on primative");
+			if (Objectptr == 0) Error("class not found");
+			
+			SendAllHome();
+
+			PushConstant((unsigned int)elementid);
+			PushConstant((unsigned int)Objectptr);
+		
+			BuiltinCall(JitGetCallPtr);
+			ClearArgument();
+			ClearArgument();
+
+			for (size_t i = 0; i < paramCount; i++)
+			{
+				Varable* var = &Variables[ReadByte()];
+				CheckInit(var);
+				PushArgument(var);
+			}
+			CC(0xff, 0xd0);//call eax;
+			if (output != 255) {
+				Varable* Returnvarable = &Variables[output];
+				ForceREG(Returnvarable, regEax);
+			}
+		
+			for (size_t i = 0; i < paramCount; i++)
+			{
+				ClearArgument();
+			}
+		}
+		break;
 		case(0x29):// Call(self compiletime) // length 3: opcode, elementid,param count, params  // calling a static method in same class
 		{
 			SendAllHome();
@@ -634,8 +697,9 @@ bool Compile() {
 				CheckInit(var);
 				PushArgument(var);
 			}
-			PushConstant((unsigned int)ParentClass);
 			PushConstant((unsigned int)elementid);
+			PushConstant((unsigned int)ParentClass);
+		
 			BuiltinCall(JitGetCallPtr);
 			ClearArgument();
 			ClearArgument();
@@ -765,13 +829,75 @@ bool Compile() {
 
 			}break;
 			case(0x56):// GetType
-			case(0x57):// GetElement
-			case(0x58):// SetElement
+				Error("notdone"); break;
+			case(0x57):// GetElementstatic (compile time)
+
+			case(0x58):// SetElementstatic (compile time)
 			case(0x59):// Typecast
 			case(0x5a):// Typecast(dynamic)
-			case(0x5b):// GetElement(dynamic)
-			case(0x5c):// SetElement(dynamic)
 				Error("notdone"); break;
+			case(0x5b):// GetElement (compile time)
+			{
+				Byte VarableA = ReadByte();
+				Byte Index = ReadByte();
+				Byte VarableB = ReadByte();
+
+				
+
+				
+				Varable* InputVar = &Variables[VarableA];
+				Varable* OuputVar = &Variables[VarableB];
+
+				CheckInit(InputVar);
+				SendAllHome();
+				if (!isObject(InputVar->type)) {
+					Error("Object Expected");
+				}
+				//todo need to do type check
+				PushConstant(Index);
+				PushArgument(InputVar);
+				BuiltinCall(JitGetItem);
+				ClearArgument();
+				ClearArgument();
+				if (!OuputVar->init) {
+					SetVarable(OuputVar,0);
+				}
+				if (OuputVar->RegisterStorage == 0) {
+					CheckInit(OuputVar);
+					CC(0x8b, 0x00);//  mov    eax, DWORD PTR[eax]
+					
+					int ofset = memoryOfset(OuputVar->StackStorage);
+					if (ofset > 127) {
+						CC(0x89, 0x84, 0x24, Split4(ofset));
+					}
+					else {
+						CC(0x89, 0x44, 0x24, (Byte)ofset);
+					}
+				}else{
+					Error("varable on stack expected Expected");
+				}
+				break;
+			}
+			case(0x5c):// SetElement (compile time)
+			{
+				Byte VarableA = ReadByte();
+				Byte Index = ReadByte();
+				Byte VarableB = ReadByte();
+				SendAllHome();
+				Varable* InputVar = &Variables[VarableA];
+				Varable* OuputVar = &Variables[VarableB];
+				if (!isObject(InputVar->type)) {
+					Error("Object Expected");
+				}
+				//todo need to do type check
+				PushConstant(Index);
+				PushArgument(InputVar);
+				BuiltinCall(JitGetItem);
+				ClearArgument();
+				ClearArgument();
+
+				break;
+			}
 	//___________________________0x7X math
 			case(0x70): //Div
 			case(0x71):// Mul
@@ -873,7 +999,6 @@ bool Compile() {
 				}
 				break;
 			}
-				
 			case(0x78):// Add Constant
 			{
 				int varable = ReadByte();
@@ -1075,6 +1200,17 @@ static inline unsigned int ReadUInt() {
 	return output;
 }
 
+
+static char* ReadString()
+{
+	char* result;
+	Byte length = ReadByte() + 1;
+	result = (char*)(iP + (int)program);
+	iP += length;
+	return result;
+}
+
+
 #pragma endregion
 
 
@@ -1149,7 +1285,7 @@ static void Move(Varable* source, Varable* Dest) {
 	int sourceType = source->type;
 	CheckInit(source);
 	if (!Dest->init) {
-		InitVarable(Dest, 0);
+		SetVarable(Dest, 0);
 	}
 	
 	if (source->type == Dest->type) {
